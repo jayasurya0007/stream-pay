@@ -1,0 +1,24 @@
+{
+    "name": "nexus-tipping-dapp",
+    "private": true,
+    "version": "0.0.0",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc -b && vite build",
+        "prettier": "prettier --write .",
+        "preview": "vite preview"
+    },
+    "dependencies": {
+        "@erc7824/nitrolite": "^0.3.0",
+        "preact": "^10.26.9",
+        "viem": "2.32.0"
+    },
+    "devDependencies": {
+        "@preact/preset-vite": "^2.10.2",
+        "@types/node": "^20.11.0",
+        "prettier": "3.5.3",
+        "typescript": "~5.8.3",
+        "vite": "^7.0.4"
+    }
+}
