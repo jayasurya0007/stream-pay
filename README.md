@@ -16,6 +16,32 @@ In this workshop, we will use a sample content platform application as a practic
 - **Styling:** CSS Modules
 - **Key Library:** `@erc7824/nitrolite`
 
+## Refactor: Modular Hooks Architecture
+
+The main app logic was reorganized from a single `src/App.tsx` into dedicated hooks for clarity and reuse. Functionality remains identical.
+
+### New Hook Modules
+
+- `src/hooks/useWallet.ts`: Connects MetaMask via viem, exposes `account`, `walletClient`, `connectWallet`.
+- `src/hooks/useSessionKey.ts`: Generates/loads a session key, caches in `localStorage`.
+- `src/hooks/useWebSocketStatus.ts`: Manages WebSocket connection to `VITE_NITROLITE_WS_URL` and status updates.
+- `src/hooks/useAuth.ts`: Runs EIP‑712 authentication (challenge/verify), stores JWT, exposes `isAuthenticated`.
+- `src/hooks/useBalances.ts`: Fetches ledger balances after auth and listens for live balance updates.
+- `src/hooks/useNitroliteAppSessions.ts`: Create/get/close app sessions over Nitrolite RPC.
+- `src/hooks/useNitroliteState.ts`: Submit app state and query channels/RPC history (with derive-from-history helper).
+- `src/hooks/useTransfer.ts`: Signs and sends transfers using the session key.
+
+### Updated `src/App.tsx`
+
+- Replaced inlined effects and handlers with the hooks above.
+- Keeps minimal UI state for transfer progress and a small listener for transfer/error notifications.
+- Existing UI remains the same (wallet connect, balances, app sessions, app state, channels/RPC history).
+
+### Notes
+
+- `VITE_NITROLITE_WS_URL` is still required (see Setup below).
+- Two helper pieces are intentionally kept for future use: `handleSupport` (not wired to UI) and the derive-from-history toggle.
+
 ## Getting Started
 
 ### Prerequisites
