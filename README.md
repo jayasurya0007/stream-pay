@@ -65,11 +65,14 @@ The main app logic was reorganized from a single `src/App.tsx` into dedicated ho
     ```
 
 3.  **Set up environment variables:**
-    Create a file named `.env.local` in the root of the project and add your Nitrolite WebSocket URL:
+    Create a file named `.env.local` in the root of the project and add your Nitrolite configuration:
 
     ```env
     # .env.local
     VITE_NITROLITE_WS_URL=wss://your-rpc-endpoint.com/ws
+    VITE_CUSTODY_ADDRESS=0x0000000000000000000000000000000000000000
+    VITE_ADJUDICATOR_ADDRESS=0x0000000000000000000000000000000000000000
+    VITE_USDC_TOKEN_ADDRESS=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
     ```
 
 4.  **Run the development server:**
@@ -88,6 +91,120 @@ This repository uses branches to guide you through the workshop. You can switch 
 - `chapter-3-session-auth`: Solution for Chapter 3 (Authenticating the session via WebSocket).
 - `chapter-4-display-balances`: Solution for Chapter 4 (Fetching and displaying asset balances).
 - `final-p2p-transfer`: The final, completed application with peer-to-peer transfers.
+
+## Micropayment Streaming Platform Implementation
+
+### New Features Added
+
+#### 1. Pay-As-You-Watch Streaming Platform
+- **Video Cards**: Hardcoded video selection with creator addresses
+- **Session Budget**: User sets spending limit per video session
+- **Real-time Micropayments**: Automatic payments every 10 seconds while video plays
+- **Rate Configuration**: Fixed at 0.01 USDC per minute (0.00167 USDC per 10-second tick)
+
+#### 2. Enhanced UI Components
+- **Video Grid**: Card-based video selection interface
+- **Funding Section**: Deposit/Withdraw controls for ledger balance management
+- **Streaming Status**: Real-time display of payment status and total spent
+- **Balance Display**: Shows available ledger balance for selected asset
+
+#### 3. New Hooks Added
+- `src/hooks/useStreamingPayments.ts`: Manages micropayment streaming logic
+  - Handles interval-based payments
+  - Enforces session budget limits
+  - Provides start/stop controls
+  - Tracks total sent amounts
+
+#### 4. Network Configuration
+- **Base Network**: Switched from Ethereum mainnet to Base (chainId 8453)
+- **Wallet Integration**: Updated to use Base network for all transactions
+- **Asset Support**: USDC and ETH with proper decimal handling (6 and 18 decimals)
+
+#### 5. Complete Deposit/Withdraw Implementation ✅
+- **Full Nitrolite Client Integration**: Complete implementation using `@erc7824/nitrolite` client methods
+- **Deposit Function**: `client.deposit()` for funding ledger accounts with proper error handling
+- **Withdraw Function**: `client.withdrawal()` for reclaiming funds with balance validation
+- **Contract Configuration**: Uses environment variables for custody, adjudicator, and token addresses
+- **Type Safety**: Handles TypeScript version conflicts with proper type assertions
+- **User Experience**: Confirmation dialogs, success/error messages, and automatic form clearing
+
+### Technical Implementation Details
+
+#### Micropayment Flow
+1. **Authentication**: User connects wallet and authenticates with session key
+2. **Funding**: User deposits funds from wallet to Nitrolite ledger (onchain)
+3. **Video Selection**: User selects video and sets session budget
+4. **Streaming**: On play, micropayments stream from user ledger to creator ledger (off-chain)
+5. **Settlement**: Creator can withdraw funds from their ledger (onchain)
+
+#### Key Features
+- **Off-chain Micropayments**: No gas fees per payment tick
+- **Budget Enforcement**: Automatic stop when session budget reached
+- **Real-time Updates**: Live balance and spending tracking
+- **Complete Error Handling**: Comprehensive error management and user feedback
+- **Full Onchain Integration**: Working deposit/withdraw with Nitrolite contracts
+- **Input Validation**: Amount validation, balance checks, and confirmation dialogs
+
+#### Configuration Required
+- **Environment Variables**: 
+  - `VITE_NITROLITE_WS_URL` for WebSocket connection
+  - `VITE_CUSTODY_ADDRESS` for Nitrolite custody contract
+  - `VITE_ADJUDICATOR_ADDRESS` for Nitrolite adjudicator contract
+  - `VITE_USDC_TOKEN_ADDRESS` for USDC token contract on Base
+
+### Usage Instructions
+
+1. **Connect Wallet**: Ensure MetaMask is on Base network
+2. **Fund Account**: Use Deposit button to add funds to ledger (requires gas fees)
+3. **Select Video**: Choose from available video cards
+4. **Set Budget**: Enter session spending limit
+5. **Watch & Pay**: Click Watch, then Play to start micropayment streaming
+6. **Monitor**: Track spending in real-time, pause/stop anytime
+7. **Withdraw**: Use Withdraw button to reclaim funds from ledger to wallet
+
+### Deposit/Withdraw Features
+
+#### Deposit Process
+- **Input Validation**: Checks for valid amounts and required fields
+- **Environment Validation**: Verifies all contract addresses are configured
+- **Network Validation**: Automatically detects and switches to Base network if needed
+- **USDC Approval**: Automatically checks and requests USDC token approval for custody contract
+- **User Confirmation**: Shows confirmation dialog before transaction
+- **Gas Fee Warning**: Informs user about onchain transaction costs
+- **Success Feedback**: Displays transaction hash and amount deposited
+- **Error Handling**: Specific error messages for common issues (insufficient funds, user rejection, gas estimation)
+
+#### Withdraw Process
+- **Balance Validation**: Checks if user has sufficient ledger balance
+- **Amount Validation**: Ensures withdrawal amount is greater than 0
+- **Network Validation**: Automatically detects and switches to Base network if needed
+- **User Confirmation**: Shows confirmation dialog before transaction
+- **Gas Fee Warning**: Informs user about onchain transaction costs
+- **Success Feedback**: Displays transaction hash and amount withdrawn
+- **Error Handling**: Specific error messages including challenge period warnings
+
+### Files Modified
+- `src/App.tsx`: Added streaming platform UI and complete deposit/withdraw functions with Nitrolite client integration
+- `src/hooks/useWallet.ts`: Updated to use Base network
+- `src/hooks/useStreamingPayments.ts`: New hook for micropayment management
+- `README.md`: Updated documentation with complete implementation details
+
+### Technical Notes
+
+#### TypeScript Integration
+- **Version Conflicts**: Resolved TypeScript conflicts between `@erc7824/nitrolite` and `viem` using type assertions
+- **Dynamic Imports**: Used dynamic imports to avoid static type checking issues
+- **Type Safety**: Maintained type safety while handling version incompatibilities
+
+#### Error Handling
+- **Comprehensive Coverage**: Handles insufficient funds, user rejection, gas estimation failures, and challenge periods
+- **User-Friendly Messages**: Converts technical errors into actionable user messages
+- **Graceful Degradation**: Provides fallback error messages for unknown issues
+
+#### Security Considerations
+- **Environment Variables**: All sensitive contract addresses stored in environment variables
+- **User Confirmation**: All onchain transactions require explicit user confirmation
+- **Balance Validation**: Prevents withdrawals exceeding available ledger balance
 
 ## Note for Presenters
 

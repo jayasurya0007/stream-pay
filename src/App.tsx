@@ -83,37 +83,333 @@
         const [fundAsset, setFundAsset] = useState<string>('usdc');
         const [fundAmount, setFundAmount] = useState<string>('');
         const handleDeposit = async () => {
-            if (!isAuthenticated || !sessionKey || !account) {
-                alert('Please authenticate first');
+            if (!walletClient || !account) {
+                alert('Please connect your wallet first');
+                return;
+            }
+
+            if (!fundAmount || fundAmount.trim() === '') {
+                alert('Please enter an amount to deposit');
                 return;
             }
 
             try {
-                // Use Nitrolite's native deposit RPC
-                // This would use Nitrolite's deposit RPC method
-                // You'll need to implement the actual deposit message creation
-                alert(`Deposit functionality requires Nitrolite deposit RPC implementation. Amount: ${fundAmount} ${fundAsset.toUpperCase()}`);
+                // Get contract addresses from environment variables
+                const custodyAddress = import.meta.env.VITE_CUSTODY_ADDRESS;
+                const adjudicatorAddress = import.meta.env.VITE_ADJUDICATOR_ADDRESS;
+                const usdcTokenAddress = import.meta.env.VITE_USDC_TOKEN_ADDRESS;
+
+                if (!custodyAddress || !adjudicatorAddress) {
+                    alert('Missing contract addresses in environment variables. Please set VITE_CUSTODY_ADDRESS and VITE_ADJUDICATOR_ADDRESS');
+                    return;
+                }
+
+                if (fundAsset.toLowerCase() === 'usdc' && !usdcTokenAddress) {
+                    alert('Missing USDC token address in environment variables. Please set VITE_USDC_TOKEN_ADDRESS');
+                    return;
+                }
+
+                // Convert amount to proper units
+                const decimals = getDecimalsForAsset(fundAsset);
+                const amountBase = toBaseUnits(fundAmount, decimals);
+                const amountBigInt = BigInt(amountBase);
+
+                if (amountBigInt <= 0n) {
+                    alert('Amount must be greater than 0');
+                    return;
+                }
+
+                // Dynamic imports to avoid TypeScript issues
+                const { NitroliteClient } = await import('@erc7824/nitrolite');
+                const { createPublicClient, http } = await import('viem');
+                const { base } = await import('viem/chains');
+
+                // Create public client for Base network
+                const publicClient = createPublicClient({
+                    chain: base,
+                    transport: http()
+                });
+
+                // Create Nitrolite client with type assertions to handle version conflicts
+                const client = new NitroliteClient({
+                    publicClient: publicClient as any,
+                    walletClient: walletClient as any,
+                    stateSigner: walletClient as any, // Use wallet client as state signer
+                    addresses: {
+                        custody: custodyAddress as Address,
+                        adjudicator: adjudicatorAddress as Address,
+                        guestAddress: account,
+                    },
+                    chainId: 8453, // Base mainnet
+                    challengeDuration: 3600n // Minimum required: 3600 seconds (1 hour)
+                });
+
+                // Show confirmation dialog
+                const confirmed = confirm(`Deposit ${fundAmount} ${fundAsset.toUpperCase()} to your Nitrolite ledger?\n\nThis will require gas fees for the onchain transaction.`);
+                if (!confirmed) return;
+
+                // Check if user is on the correct network (Base)
+                const currentChainId = await walletClient.getChainId();
+                if (currentChainId !== 8453) {
+                    const switchConfirmed = confirm(`You need to switch to Base network to make deposits.\n\nCurrent: ${currentChainId === 1 ? 'Ethereum Mainnet' : `Chain ${currentChainId}`}\nRequired: Base (8453)\n\nWould you like to switch to Base network?`);
+                    if (!switchConfirmed) return;
+                    
+                    try {
+                        await window.ethereum.request({
+                            method: 'wallet_switchEthereumChain',
+                            params: [{ chainId: '0x2105' }], // 8453 in hex
+                        });
+                    } catch (switchError: any) {
+                        if (switchError.code === 4902) {
+                            // Network not added, add it
+                            await window.ethereum.request({
+                                method: 'wallet_addEthereumChain',
+                                params: [{
+                                    chainId: '0x2105',
+                                    chainName: 'Base',
+                                    rpcUrls: ['https://mainnet.base.org'],
+                                    nativeCurrency: {
+                                        name: 'Ethereum',
+                                        symbol: 'ETH',
+                                        decimals: 18,
+                                    },
+                                    blockExplorerUrls: ['https://basescan.org'],
+                                }],
+                            });
+            } else {
+                            alert('Failed to switch to Base network. Please switch manually in MetaMask.');
+                            return;
+                        }
+                    }
+                }
+
+                // For USDC, we need to approve the custody contract first
+                if (fundAsset.toLowerCase() === 'usdc') {
+                    try {
+                        // Check current allowance
+                        const currentAllowance = await publicClient.readContract({
+                            address: usdcTokenAddress as Address,
+                            abi: [
+                                {
+                                    name: 'allowance',
+                                    type: 'function',
+                                    stateMutability: 'view',
+                                    inputs: [
+                                        { name: 'owner', type: 'address' },
+                                        { name: 'spender', type: 'address' }
+                                    ],
+                                    outputs: [{ name: '', type: 'uint256' }]
+                                }
+                            ],
+                            functionName: 'allowance',
+                            args: [account, custodyAddress as Address]
+                        });
+
+                        // If allowance is insufficient, approve the custody contract
+                        if (currentAllowance < amountBigInt) {
+                            const approveConfirmed = confirm(`Approve ${fundAmount} ${fundAsset.toUpperCase()} for Nitrolite custody contract?\n\nThis is required before depositing USDC.`);
+                            if (!approveConfirmed) return;
+
+                            const approveTxHash = await walletClient.writeContract({
+                                address: usdcTokenAddress as Address,
+                                abi: [
+                                    {
+                                        name: 'approve',
+                                        type: 'function',
+                                        stateMutability: 'nonpayable',
+                                        inputs: [
+                                            { name: 'spender', type: 'address' },
+                                            { name: 'amount', type: 'uint256' }
+                                        ],
+                                        outputs: [{ name: '', type: 'bool' }]
+                                    }
+                                ],
+                                functionName: 'approve',
+                                args: [custodyAddress as Address, amountBigInt],
+                                account: account,
+                                chain: walletClient.chain
+                            });
+
+                            alert(`✅ USDC approval successful!\n\nTransaction Hash: ${approveTxHash}\n\nNow proceeding with deposit...`);
+                        }
+                    } catch (approveError) {
+                        console.error('USDC approval failed:', approveError);
+                        alert(`❌ USDC approval failed: ${approveError instanceof Error ? approveError.message : 'Unknown error'}`);
+                        return;
+                    }
+                }
+
+                // Execute deposit
+                const tokenAddress = fundAsset.toLowerCase() === 'usdc' ? usdcTokenAddress as Address : undefined;
+                const txHash = await client.deposit(amountBigInt as any, tokenAddress as any);
+                
+                alert(`✅ Deposit successful!\n\nTransaction Hash: ${txHash}\nAmount: ${fundAmount} ${fundAsset.toUpperCase()}\n\nYour ledger balance will be updated once the transaction is confirmed.`);
+                
+                // Clear the amount field
+                setFundAmount('');
                 
             } catch (error) {
                 console.error('Deposit failed:', error);
-                alert(`Deposit failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                let errorMessage = 'Unknown error occurred';
+                
+                if (error instanceof Error) {
+                    errorMessage = error.message;
+                    
+                    // Handle specific error cases
+                    if (errorMessage.includes('insufficient funds')) {
+                        errorMessage = 'Insufficient funds in your wallet for this deposit';
+                    } else if (errorMessage.includes('user rejected')) {
+                        errorMessage = 'Transaction was rejected by user';
+                    } else if (errorMessage.includes('gas')) {
+                        errorMessage = 'Gas estimation failed. Please try with a smaller amount or check your wallet balance';
+                    } else if (errorMessage.includes('allowance')) {
+                        errorMessage = 'USDC token approval failed. Please check if the USDC contract address is correct for Base network';
+                    } else if (errorMessage.includes('Failed to read from contract')) {
+                        errorMessage = 'Contract interaction failed. Please verify the contract addresses are correct for Base network';
+                    }
+                }
+                
+                alert(`❌ Deposit failed: ${errorMessage}`);
             }
         };
         const handleWithdraw = async () => {
-            if (!isAuthenticated || !sessionKey || !account) {
-                alert('Please authenticate first');
+            if (!walletClient || !account) {
+                alert('Please connect your wallet first');
+                return;
+            }
+
+            if (!fundAmount || fundAmount.trim() === '') {
+                alert('Please enter an amount to withdraw');
                 return;
             }
 
             try {
-                // Use Nitrolite's native withdraw RPC
-                // This would use Nitrolite's withdraw RPC method
-                // You'll need to implement the actual withdraw message creation
-                alert(`Withdraw functionality requires Nitrolite withdraw RPC implementation. Amount: ${fundAmount} ${fundAsset.toUpperCase()}`);
+                // Get contract addresses from environment variables
+                const custodyAddress = import.meta.env.VITE_CUSTODY_ADDRESS;
+                const adjudicatorAddress = import.meta.env.VITE_ADJUDICATOR_ADDRESS;
+                const usdcTokenAddress = import.meta.env.VITE_USDC_TOKEN_ADDRESS;
+
+                if (!custodyAddress || !adjudicatorAddress) {
+                    alert('Missing contract addresses in environment variables. Please set VITE_CUSTODY_ADDRESS and VITE_ADJUDICATOR_ADDRESS');
+                    return;
+                }
+
+                if (fundAsset.toLowerCase() === 'usdc' && !usdcTokenAddress) {
+                    alert('Missing USDC token address in environment variables. Please set VITE_USDC_TOKEN_ADDRESS');
+                    return;
+                }
+
+                // Convert amount to proper units
+                const decimals = getDecimalsForAsset(fundAsset);
+                const amountBase = toBaseUnits(fundAmount, decimals);
+                const amountBigInt = BigInt(amountBase);
+
+                if (amountBigInt <= 0n) {
+                    alert('Amount must be greater than 0');
+                    return;
+                }
+
+                // Check if user has sufficient ledger balance
+                const availableBalance = availableByAsset(fundAsset);
+                if (!gte(availableBalance, amountBase)) {
+                    const availableHuman = humanForAsset(fundAsset, availableBalance);
+                    alert(`Insufficient ledger balance. Available: ${availableHuman} ${fundAsset.toUpperCase()}, Requested: ${fundAmount} ${fundAsset.toUpperCase()}`);
+                    return;
+                }
+
+                // Dynamic imports to avoid TypeScript issues
+                const { NitroliteClient } = await import('@erc7824/nitrolite');
+                const { createPublicClient, http } = await import('viem');
+                const { base } = await import('viem/chains');
+
+                // Create public client for Base network
+                const publicClient = createPublicClient({
+                    chain: base,
+                    transport: http()
+                });
+
+                // Create Nitrolite client with type assertions to handle version conflicts
+                const client = new NitroliteClient({
+                    publicClient: publicClient as any,
+                    walletClient: walletClient as any,
+                    stateSigner: walletClient as any, // Use wallet client as state signer
+                    addresses: {
+                        custody: custodyAddress as Address,
+                        adjudicator: adjudicatorAddress as Address,
+                        guestAddress: account,
+                    },
+                    chainId: 8453, // Base mainnet
+                    challengeDuration: 3600n // Minimum required: 3600 seconds (1 hour)
+                });
+
+                // Show confirmation dialog
+                const confirmed = confirm(`Withdraw ${fundAmount} ${fundAsset.toUpperCase()} from your Nitrolite ledger to your wallet?\n\nThis will require gas fees for the onchain transaction.`);
+                if (!confirmed) return;
+
+                // Check if user is on the correct network (Base)
+                const currentChainId = await walletClient.getChainId();
+                if (currentChainId !== 8453) {
+                    const switchConfirmed = confirm(`You need to switch to Base network to make withdrawals.\n\nCurrent: ${currentChainId === 1 ? 'Ethereum Mainnet' : `Chain ${currentChainId}`}\nRequired: Base (8453)\n\nWould you like to switch to Base network?`);
+                    if (!switchConfirmed) return;
+                    
+                    try {
+                        await window.ethereum.request({
+                            method: 'wallet_switchEthereumChain',
+                            params: [{ chainId: '0x2105' }], // 8453 in hex
+                        });
+                    } catch (switchError: any) {
+                        if (switchError.code === 4902) {
+                            // Network not added, add it
+                            await window.ethereum.request({
+                                method: 'wallet_addEthereumChain',
+                                params: [{
+                                    chainId: '0x2105',
+                                    chainName: 'Base',
+                                    rpcUrls: ['https://mainnet.base.org'],
+                                    nativeCurrency: {
+                                        name: 'Ethereum',
+                                        symbol: 'ETH',
+                                        decimals: 18,
+                                    },
+                                    blockExplorerUrls: ['https://basescan.org'],
+                                }],
+                            });
+                        } else {
+                            alert('Failed to switch to Base network. Please switch manually in MetaMask.');
+                            return;
+                        }
+                    }
+                }
+
+                // Execute withdrawal
+                const tokenAddress = fundAsset.toLowerCase() === 'usdc' ? usdcTokenAddress as Address : undefined;
+                const txHash = await client.withdrawal(amountBigInt as any, tokenAddress as any);
+                
+                alert(`✅ Withdrawal successful!\n\nTransaction Hash: ${txHash}\nAmount: ${fundAmount} ${fundAsset.toUpperCase()}\n\nYour wallet balance will be updated once the transaction is confirmed.`);
+                
+                // Clear the amount field
+                setFundAmount('');
                 
             } catch (error) {
                 console.error('Withdraw failed:', error);
-                alert(`Withdraw failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                let errorMessage = 'Unknown error occurred';
+                
+                if (error instanceof Error) {
+                    errorMessage = error.message;
+                    
+                    // Handle specific error cases
+                    if (errorMessage.includes('insufficient funds')) {
+                        errorMessage = 'Insufficient funds in your ledger for this withdrawal';
+                    } else if (errorMessage.includes('user rejected')) {
+                        errorMessage = 'Transaction was rejected by user';
+                    } else if (errorMessage.includes('gas')) {
+                        errorMessage = 'Gas estimation failed. Please try with a smaller amount or check your wallet balance';
+                    } else if (errorMessage.includes('challenge')) {
+                        errorMessage = 'Withdrawal is in challenge period. Please wait for the challenge period to end';
+                    }
+                }
+                
+                alert(`❌ Withdrawal failed: ${errorMessage}`);
             }
         };
 
