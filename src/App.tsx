@@ -1,4 +1,4 @@
-    import { useState } from 'preact/hooks';
+    import { useState, useRef } from 'preact/hooks';
     import type { Address } from 'viem';
     import { BalanceDisplay } from './components/BalanceDisplay/BalanceDisplay';
     import { useTransfer } from './hooks/useTransfer';
@@ -428,6 +428,7 @@
         const [payTickSeconds] = useState<number>(10); // fixed default
         const [payBudgetTotal, setPayBudgetTotal] = useState<string>(''); // session cap in human units
         const [budgetsByUrl, setBudgetsByUrl] = useState<Record<string, string>>({});
+        const videoRef = useRef<HTMLVideoElement>(null);
 
         
 
@@ -505,7 +506,11 @@
                                         style={{ padding: '8px 12px', width: '100%' }}
                                     />
                                     <button
-                                        onClick={() => { setPayVideoUrl(v.url); setPayRecipient(v.creator); setPayBudgetTotal(budgetsByUrl[v.url] ?? ''); }}
+                                        onClick={() => { 
+                                            setPayVideoUrl(v.url); 
+                                            setPayRecipient(v.creator); 
+                                            setPayBudgetTotal(budgetsByUrl[v.url] ?? ''); 
+                                        }}
                                         disabled={!isAuthenticated || !(budgetsByUrl[v.url] ?? '').trim()}
                                     >
                                         Watch
@@ -515,6 +520,7 @@
                         </div>
                         <div>
                             <video
+                                ref={videoRef}
                                 key={payVideoUrl}
                                 src={payVideoUrl}
                                 controls
@@ -528,6 +534,10 @@
                                     const thresholdBase = toBaseUnits(payBudgetTotal, decimals);
                                     if (!gte(availableByAsset(payAsset), thresholdBase)) {
                                         alert(`Insufficient ${payAsset.toUpperCase()} balance for session budget`);
+                                        // Pause the video when insufficient funds
+                                        if (videoRef.current) {
+                                            videoRef.current.pause();
+                                        }
                                         return;
                                     }
                                     startStream({

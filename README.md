@@ -144,6 +144,7 @@ This repository uses branches to guide you through the workshop. You can switch 
 - **Complete Error Handling**: Comprehensive error management and user feedback
 - **Full Onchain Integration**: Working deposit/withdraw with Nitrolite contracts
 - **Input Validation**: Amount validation, balance checks, and confirmation dialogs
+- **Video Control**: Automatic video pause when insufficient funds detected
 
 #### Configuration Required
 - **Environment Variables**: 
