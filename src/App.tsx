@@ -1,9 +1,8 @@
-    import { useState, useEffect } from 'preact/hooks';
+    import { useState } from 'preact/hooks';
     import type { Address } from 'viem';
-    import { parseAnyRPCResponse, RPCMethod, type TransferResponse } from '@erc7824/nitrolite';
     import { BalanceDisplay } from './components/BalanceDisplay/BalanceDisplay';
     import { useTransfer } from './hooks/useTransfer';
-    import { webSocketService } from './lib/websocket';
+    import { useStreamingPayments } from './hooks/useStreamingPayments';
     import { useWallet } from './hooks/useWallet';
     import { useSessionKey } from './hooks/useSessionKey';
     import { useWebSocketStatus } from './hooks/useWebSocketStatus';
@@ -19,6 +18,19 @@
     }
 
     export function App() {
+        const videos = [
+            {
+                title: 'Big Buck Bunny',
+                url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+                creator: '0x066ae107Ef0FdF393DeF2f6f546865581482845B',
+            },
+            {
+                title: 'Sintel',
+                url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4',
+                creator: '0x1Db4634a48aeb9BAC776F20160e31459adCdC0A5',
+            },
+        ];
+
         const { account, walletClient, connectWallet } = useWallet();
         const { sessionKey } = useSessionKey();
         const { wsStatus } = useWebSocketStatus();
@@ -26,9 +38,62 @@
         const { isAuthenticated } = useAuth(account, walletClient as any, sessionKey?.address ?? null, wsStatus);
         const { balances, isLoadingBalances } = useBalances(isAuthenticated, sessionKey as any, account as any);
 
-        const [isTransferring, setIsTransferring] = useState(false);
-        const [transferStatus, setTransferStatus] = useState<string | null>(null);
+        
         const { handleTransfer: transferFn } = useTransfer(sessionKey as any, isAuthenticated);
+
+        // unit helpers (USDC: 6 decimals, ETH: 18 decimals)
+        const USDC_DECIMALS = 6n;
+        const ETH_DECIMALS = 18n;
+        const getDecimalsForAsset = (asset: string): bigint => {
+            const a = (asset || '').toLowerCase();
+            if (a === 'eth') return ETH_DECIMALS;
+            if (a === 'usdc') return USDC_DECIMALS;
+            return USDC_DECIMALS;
+        };
+        const toBaseUnits = (value: string, decimals: bigint): string => {
+            const trimmed = (value || '').trim();
+            if (!trimmed) return '0';
+            if (!trimmed.includes('.')) return (BigInt(trimmed) * 10n ** decimals).toString();
+            const [whole, fracRaw] = trimmed.split('.');
+            const frac = (fracRaw || '').slice(0, Number(decimals));
+            const paddedFrac = frac.padEnd(Number(decimals), '0');
+            const wholeInt = whole ? BigInt(whole) : 0n;
+            return (wholeInt * 10n ** decimals + BigInt(paddedFrac || '0')).toString();
+        };
+        const fromBaseUnits = (value: string, decimals: bigint): string => {
+            try {
+                const v = BigInt(value || '0');
+                const d = 10n ** decimals;
+                const whole = v / d;
+                const frac = (v % d).toString().padStart(Number(decimals), '0').replace(/0+$/, '');
+                return frac ? `${whole}.${frac}` : `${whole}`;
+            } catch {
+                return '0';
+            }
+        };
+        const gte = (a: string, b: string) => {
+            try { return BigInt(a) >= BigInt(b); } catch { return false; }
+        };
+        const availableByAsset = (asset: string): string => {
+            const key = (asset || '').toLowerCase();
+            return balances?.[key] ?? '0';
+        };
+        const humanForAsset = (asset: string, base: string): string => fromBaseUnits(base, getDecimalsForAsset(asset));
+
+        const { startStream, stopStream, isStreaming, totalSent } = useStreamingPayments({
+            canTransfer: Boolean(isAuthenticated && sessionKey),
+            handleTransfer: transferFn as any,
+        });
+
+        
+
+        // Pay-as-you-watch controls
+        const [payVideoUrl, setPayVideoUrl] = useState<string>('');
+        const [payRecipient, setPayRecipient] = useState<string>('');
+        const [payAsset, setPayAsset] = useState<string>('usdc');
+        const [payRatePerMinute, setPayRatePerMinute] = useState<string>(''); // human units per minute
+        const [payTickSeconds, setPayTickSeconds] = useState<number>(5);
+        const [payBudgetTotal, setPayBudgetTotal] = useState<string>(''); // session cap in human units
 
         const {
             participantB,
@@ -52,48 +117,13 @@
             getStateResult,
             channelsResult,
             rpcHistoryResult,
-            deriveStateFromHistory,
             setDeriveStateFromHistory,
             handleSubmitAppState,
             handleGetChannels,
             handleGetRPCHistory,
         } = useNitroliteState(isAuthenticated, sessionKey as any);
 
-        const handleSupport = async (recipient: string, amount: string) => {
-            setIsTransferring(true);
-            setTransferStatus('Sending support...');
-            const result = await transferFn(recipient as Address, amount);
-            if (result.success) {
-                setTransferStatus('Support sent!');
-            } else {
-                setIsTransferring(false);
-                setTransferStatus(null);
-                if (result.error) alert(result.error);
-            }
-        };
-
-        useEffect(() => {
-            const handleMessage = async (data: any) => {
-                const response = parseAnyRPCResponse(JSON.stringify(data));
-                if (response.method === RPCMethod.Transfer) {
-                    const transferResponse = response as TransferResponse;
-                    console.log('Transfer completed:', transferResponse.params);
-                    setIsTransferring(false);
-                    setTransferStatus(null);
-                    alert(`Transfer completed successfully!`);
-                }
-                if (response.method === RPCMethod.Error) {
-                    console.error('RPC Error:', response.params);
-                    if (isTransferring) {
-                        setIsTransferring(false);
-                        setTransferStatus(null);
-                        alert(`Transfer failed: ${response.params.error}`);
-                    }
-                }
-            };
-            webSocketService.addMessageListener(handleMessage);
-            return () => webSocketService.removeMessageListener(handleMessage);
-        }, [isTransferring]);
+        
 
         const formatAddress = (address: Address) => `${address.slice(0, 6)}...${address.slice(-4)}`;
 
@@ -127,7 +157,105 @@
                 </header>
 
                 <main className="main-content">
-                    {transferStatus && <div className="transfer-status">{transferStatus}</div>}
+                    
+
+                    <section style={{ marginTop: 24 }}>
+                        <h3>Pay As You Watch</h3>
+                        <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+                            {videos.map((v) => (
+                                <div key={v.url} style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <button
+                                        onClick={() => { setPayVideoUrl(v.url); setPayRecipient(v.creator); }}
+                                        style={{ padding: '6px 10px' }}
+                                    >
+                                        Select
+                                    </button>
+                                    <div style={{ fontWeight: 600 }}>{v.title}</div>
+                                    <div style={{ opacity: 0.8 }}>Creator: {v.creator}</div>
+                                </div>
+                            ))}
+                        </div>
+                        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <input
+                                type="text"
+                                placeholder="Video URL (mp4)"
+                                value={payVideoUrl}
+                                onInput={(e: any) => setPayVideoUrl(e.currentTarget.value)}
+                                style={{ padding: '8px 12px', width: 320 }}
+                            />
+                            <input
+                                type="text"
+                                placeholder="Recipient (0x...)"
+                                value={payRecipient}
+                                onInput={(e: any) => setPayRecipient(e.currentTarget.value)}
+                                style={{ padding: '8px 12px', width: 320 }}
+                            />
+                            <select value={payAsset} onChange={(e: any) => setPayAsset(e.currentTarget.value)} style={{ padding: '8px 12px' }}>
+                                <option value="usdc">USDC</option>
+                                <option value="eth">ETH</option>
+                            </select>
+                            <input
+                                type="text"
+                                placeholder={`Rate per minute (${payAsset.toUpperCase()})`}
+                                value={payRatePerMinute}
+                                onInput={(e: any) => setPayRatePerMinute(e.currentTarget.value)}
+                                style={{ padding: '8px 12px', width: 200 }}
+                            />
+                            <input
+                                type="number"
+                                placeholder="Tick seconds"
+                                min={1}
+                                value={payTickSeconds}
+                                onInput={(e: any) => setPayTickSeconds(parseInt(e.currentTarget.value || '1', 10))}
+                                style={{ padding: '8px 12px', width: 140 }}
+                            />
+                            <input
+                                type="text"
+                                placeholder={`Session budget (${payAsset.toUpperCase()})`}
+                                value={payBudgetTotal}
+                                onInput={(e: any) => setPayBudgetTotal(e.currentTarget.value)}
+                                style={{ padding: '8px 12px', width: 220 }}
+                            />
+                            <div style={{ opacity: 0.8 }}>Available: {humanForAsset(payAsset, availableByAsset(payAsset))} {payAsset.toUpperCase()}</div>
+                        </div>
+                        <div style={{ marginTop: 12 }}>
+                            <video
+                                key={payVideoUrl}
+                                src={payVideoUrl}
+                                controls
+                                style={{ width: '100%', maxWidth: 720, background: '#000' }}
+                                onPlay={() => {
+                                    if (!isAuthenticated || !payRecipient || !payRatePerMinute || !payTickSeconds || !payBudgetTotal) return;
+                                    const decimals = getDecimalsForAsset(payAsset);
+                                    // amount per tick = (rate per minute) * (tickSeconds / 60)
+                                    const ratePerMinuteBase = toBaseUnits(payRatePerMinute, decimals);
+                                    const amountPerTickBase = (BigInt(ratePerMinuteBase) * BigInt(Math.max(1, payTickSeconds))) / 60n;
+                                    const thresholdBase = toBaseUnits(payBudgetTotal, decimals);
+                                    if (!gte(availableByAsset(payAsset), thresholdBase)) {
+                                        alert(`Insufficient ${payAsset.toUpperCase()} balance for session budget`);
+                                        return;
+                                    }
+                                    startStream({
+                                        recipient: payRecipient as Address,
+                                        amountPerTick: amountPerTickBase.toString(),
+                                        intervalMs: Math.max(1, payTickSeconds) * 1000,
+                                        thresholdTotal: thresholdBase,
+                                        asset: payAsset,
+                                    });
+                                }}
+                                onPause={() => {
+                                    if (isStreaming) stopStream();
+                                }}
+                                onEnded={() => {
+                                    if (isStreaming) stopStream();
+                                }}
+                            />
+                            <div style={{ marginTop: 8 }}>
+                                <div>Streaming status: {isStreaming ? 'Active' : 'Stopped'}</div>
+                                <div>Total sent: {fromBaseUnits(totalSent, getDecimalsForAsset(payAsset))} {payAsset.toUpperCase()}</div>
+                            </div>
+                        </div>
+                    </section>
 
                     <section style={{ marginTop: 24 }}>
                         <h3>Application Sessions</h3>
