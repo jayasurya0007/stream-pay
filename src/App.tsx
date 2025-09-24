@@ -8,8 +8,7 @@
     import { useWebSocketStatus } from './hooks/useWebSocketStatus';
     import { useAuth } from './hooks/useAuth';
     import { useBalances } from './hooks/useBalances';
-    import { useNitroliteAppSessions } from './hooks/useNitroliteAppSessions';
-    import { useNitroliteState } from './hooks/useNitroliteState';
+    
 
     declare global {
         interface Window {
@@ -80,6 +79,44 @@
         };
         const humanForAsset = (asset: string, base: string): string => fromBaseUnits(base, getDecimalsForAsset(asset));
 
+        // Deposit / Withdraw UI state (requires onchain integration details)
+        const [fundAsset, setFundAsset] = useState<string>('usdc');
+        const [fundAmount, setFundAmount] = useState<string>('');
+        const handleDeposit = async () => {
+            if (!isAuthenticated || !sessionKey || !account) {
+                alert('Please authenticate first');
+                return;
+            }
+
+            try {
+                // Use Nitrolite's native deposit RPC
+                // This would use Nitrolite's deposit RPC method
+                // You'll need to implement the actual deposit message creation
+                alert(`Deposit functionality requires Nitrolite deposit RPC implementation. Amount: ${fundAmount} ${fundAsset.toUpperCase()}`);
+                
+            } catch (error) {
+                console.error('Deposit failed:', error);
+                alert(`Deposit failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+        };
+        const handleWithdraw = async () => {
+            if (!isAuthenticated || !sessionKey || !account) {
+                alert('Please authenticate first');
+                return;
+            }
+
+            try {
+                // Use Nitrolite's native withdraw RPC
+                // This would use Nitrolite's withdraw RPC method
+                // You'll need to implement the actual withdraw message creation
+                alert(`Withdraw functionality requires Nitrolite withdraw RPC implementation. Amount: ${fundAmount} ${fundAsset.toUpperCase()}`);
+                
+            } catch (error) {
+                console.error('Withdraw failed:', error);
+                alert(`Withdraw failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+        };
+
         const { startStream, stopStream, isStreaming, totalSent } = useStreamingPayments({
             canTransfer: Boolean(isAuthenticated && sessionKey),
             handleTransfer: transferFn as any,
@@ -90,38 +127,13 @@
         // Pay-as-you-watch controls
         const [payVideoUrl, setPayVideoUrl] = useState<string>('');
         const [payRecipient, setPayRecipient] = useState<string>('');
-        const [payAsset, setPayAsset] = useState<string>('usdc');
-        const [payRatePerMinute, setPayRatePerMinute] = useState<string>(''); // human units per minute
-        const [payTickSeconds, setPayTickSeconds] = useState<number>(5);
+        const [payAsset] = useState<string>('usdc');
+        const [payRatePerMinute] = useState<string>('0.01'); // fixed default
+        const [payTickSeconds] = useState<number>(10); // fixed default
         const [payBudgetTotal, setPayBudgetTotal] = useState<string>(''); // session cap in human units
+        const [budgetsByUrl, setBudgetsByUrl] = useState<Record<string, string>>({});
 
-        const {
-            participantB,
-            setParticipantB,
-            amount,
-            setAmount,
-            createResult,
-            getSessionsResult,
-            closeSessionId,
-            setCloseSessionId,
-            closeResult,
-            handleCreateAppSession,
-            handleGetSessions,
-            handleCloseSession,
-        } = useNitroliteAppSessions(isAuthenticated, sessionKey as any, account as any);
-
-        const {
-            appStateValue,
-            setAppStateValue,
-            submitStateResult,
-            getStateResult,
-            channelsResult,
-            rpcHistoryResult,
-            setDeriveStateFromHistory,
-            handleSubmitAppState,
-            handleGetChannels,
-            handleGetRPCHistory,
-        } = useNitroliteState(isAuthenticated, sessionKey as any);
+        
 
         
 
@@ -160,65 +172,52 @@
                     
 
                     <section style={{ marginTop: 24 }}>
-                        <h3>Pay As You Watch</h3>
-                        <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
-                            {videos.map((v) => (
-                                <div key={v.url} style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                                    <button
-                                        onClick={() => { setPayVideoUrl(v.url); setPayRecipient(v.creator); }}
-                                        style={{ padding: '6px 10px' }}
-                                    >
-                                        Select
-                                    </button>
-                                    <div style={{ fontWeight: 600 }}>{v.title}</div>
-                                    <div style={{ opacity: 0.8 }}>Creator: {v.creator}</div>
-                                </div>
-                            ))}
-                        </div>
+                        <h3>Funding (Deposit / Withdraw)</h3>
                         <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                            <input
-                                type="text"
-                                placeholder="Video URL (mp4)"
-                                value={payVideoUrl}
-                                onInput={(e: any) => setPayVideoUrl(e.currentTarget.value)}
-                                style={{ padding: '8px 12px', width: 320 }}
-                            />
-                            <input
-                                type="text"
-                                placeholder="Recipient (0x...)"
-                                value={payRecipient}
-                                onInput={(e: any) => setPayRecipient(e.currentTarget.value)}
-                                style={{ padding: '8px 12px', width: 320 }}
-                            />
-                            <select value={payAsset} onChange={(e: any) => setPayAsset(e.currentTarget.value)} style={{ padding: '8px 12px' }}>
+                            <select value={fundAsset} onChange={(e: any) => setFundAsset(e.currentTarget.value)} style={{ padding: '8px 12px' }}>
                                 <option value="usdc">USDC</option>
                                 <option value="eth">ETH</option>
                             </select>
                             <input
                                 type="text"
-                                placeholder={`Rate per minute (${payAsset.toUpperCase()})`}
-                                value={payRatePerMinute}
-                                onInput={(e: any) => setPayRatePerMinute(e.currentTarget.value)}
+                                placeholder={`Amount (${fundAsset.toUpperCase()})`}
+                                value={fundAmount}
+                                onInput={(e: any) => setFundAmount(e.currentTarget.value)}
                                 style={{ padding: '8px 12px', width: 200 }}
                             />
-                            <input
-                                type="number"
-                                placeholder="Tick seconds"
-                                min={1}
-                                value={payTickSeconds}
-                                onInput={(e: any) => setPayTickSeconds(parseInt(e.currentTarget.value || '1', 10))}
-                                style={{ padding: '8px 12px', width: 140 }}
-                            />
+                            <button disabled={!isAuthenticated || !fundAmount} onClick={handleDeposit}>Deposit to Ledger</button>
+                            <button disabled={!isAuthenticated || !fundAmount} onClick={handleWithdraw}>Withdraw to Wallet</button>
+                            <div style={{ opacity: 0.8 }}>Ledger balance: {humanForAsset(fundAsset, availableByAsset(fundAsset))} {fundAsset.toUpperCase()}</div>
+                        </div>
+                        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
+                            Onchain actions require gas. Once deposited, pay-as-you-watch uses your ledger balance off-chain.
+                        </div>
+                    </section>
+
+                    <section style={{ marginTop: 24 }}>
+                        <h3>Pay As You Watch</h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12, marginBottom: 16 }}>
+                            {videos.map((v) => (
+                                <div key={v.url} style={{ border: '1px solid var(--border, #333)', borderRadius: 8, padding: 12, display: 'grid', gap: 8 }}>
+                                    <div style={{ fontWeight: 600 }}>{v.title}</div>
+                                    <div style={{ fontSize: 12, opacity: 0.8, wordBreak: 'break-all' }}>Creator: {v.creator}</div>
                             <input
                                 type="text"
-                                placeholder={`Session budget (${payAsset.toUpperCase()})`}
-                                value={payBudgetTotal}
-                                onInput={(e: any) => setPayBudgetTotal(e.currentTarget.value)}
-                                style={{ padding: '8px 12px', width: 220 }}
-                            />
-                            <div style={{ opacity: 0.8 }}>Available: {humanForAsset(payAsset, availableByAsset(payAsset))} {payAsset.toUpperCase()}</div>
+                                        placeholder={`Session budget (USDC)`}
+                                        value={budgetsByUrl[v.url] ?? ''}
+                                        onInput={(e: any) => setBudgetsByUrl((m) => ({ ...m, [v.url]: e.currentTarget.value }))}
+                                        style={{ padding: '8px 12px', width: '100%' }}
+                                    />
+                                    <button
+                                        onClick={() => { setPayVideoUrl(v.url); setPayRecipient(v.creator); setPayBudgetTotal(budgetsByUrl[v.url] ?? ''); }}
+                                        disabled={!isAuthenticated || !(budgetsByUrl[v.url] ?? '').trim()}
+                                    >
+                                        Watch
+                                    </button>
+                                </div>
+                            ))}
                         </div>
-                        <div style={{ marginTop: 12 }}>
+                        <div>
                             <video
                                 key={payVideoUrl}
                                 src={payVideoUrl}
@@ -253,66 +252,11 @@
                             <div style={{ marginTop: 8 }}>
                                 <div>Streaming status: {isStreaming ? 'Active' : 'Stopped'}</div>
                                 <div>Total sent: {fromBaseUnits(totalSent, getDecimalsForAsset(payAsset))} {payAsset.toUpperCase()}</div>
-                            </div>
+                        </div>
                         </div>
                     </section>
 
-                    <section style={{ marginTop: 24 }}>
-                        <h3>Application Sessions</h3>
-                        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                            <input
-                                type="text"
-                                placeholder="Participant B (0x...)"
-                                value={participantB}
-                                onInput={(e: any) => setParticipantB(e.currentTarget.value)}
-                                style={{ padding: '8px 12px' }}
-                            />
-                            <input
-                                type="text"
-                                placeholder="Amount (USDC)"
-                                value={amount}
-                                onInput={(e: any) => setAmount(e.currentTarget.value)}
-                                style={{ padding: '8px 12px', width: 120 }}
-                            />
-                            <button onClick={handleCreateAppSession} disabled={!isAuthenticated}>Create App Session</button>
-                            <button onClick={handleGetSessions} disabled={!isAuthenticated}>Get App Sessions</button>
-                            <input
-                                type="text"
-                                placeholder="App Session ID"
-                                value={closeSessionId}
-                                onInput={(e: any) => setCloseSessionId(e.currentTarget.value)}
-                                style={{ padding: '8px 12px', width: 320 }}
-                            />
-                            <button onClick={handleCloseSession} disabled={!isAuthenticated}>Close App Session</button>
-                        </div>
-                        <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
-                            {createResult && <pre style={{ whiteSpace: 'pre-wrap' }}>{createResult}</pre>}
-                            {getSessionsResult && <pre style={{ whiteSpace: 'pre-wrap' }}>{getSessionsResult}</pre>}
-                            {closeResult && <pre style={{ whiteSpace: 'pre-wrap' }}>{closeResult}</pre>}
-                        </div>
-                    </section>
-
-                    <section style={{ marginTop: 24 }}>
-                        <h3>Application State</h3>
-                        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                            <input
-                                type="text"
-                                placeholder="State JSON or text"
-                                value={appStateValue}
-                                onInput={(e: any) => setAppStateValue(e.currentTarget.value)}
-                                style={{ padding: '8px 12px', width: 360 }}
-                            />
-                            <button onClick={() => handleSubmitAppState(closeSessionId)} disabled={!isAuthenticated || !closeSessionId}>Submit App State</button>
-                            <button onClick={handleGetChannels} disabled={!isAuthenticated}>Get Channels</button>
-                            <button onClick={() => { setDeriveStateFromHistory(true); handleGetRPCHistory(); }} disabled={!isAuthenticated}>Get RPC History</button>
-                        </div>
-                        <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
-                            {submitStateResult && <pre style={{ whiteSpace: 'pre-wrap' }}>{submitStateResult}</pre>}
-                            {getStateResult && <pre style={{ whiteSpace: 'pre-wrap' }}>{getStateResult}</pre>}
-                            {channelsResult && <pre style={{ whiteSpace: 'pre-wrap' }}>{channelsResult}</pre>}
-                            {rpcHistoryResult && <pre style={{ whiteSpace: 'pre-wrap' }}>{rpcHistoryResult}</pre>}
-                        </div>
-                    </section>
+                    
                 </main>
             </div>
         );

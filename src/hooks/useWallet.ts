@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'preact/hooks';
 import { createWalletClient, custom, type Address, type WalletClient } from 'viem';
-import { mainnet } from 'viem/chains';
+import { base } from 'viem/chains';
 
 declare global {
     interface Window {
@@ -20,12 +20,12 @@ export const useWallet = () => {
 
         try {
             const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-            if (chainId !== '0x1') {
-                alert('Please switch to Ethereum Mainnet in MetaMask for this workshop');
+            if (chainId !== '0x2105') {
+                alert('Please switch to Base network (chainId 8453) in MetaMask');
             }
 
             const tempClient = createWalletClient({
-                chain: mainnet,
+                chain: base,
                 transport: custom(window.ethereum),
             });
             const [address] = await tempClient.requestAddresses();
@@ -37,7 +37,7 @@ export const useWallet = () => {
 
             const client = createWalletClient({
                 account: address,
-                chain: mainnet,
+                chain: base,
                 transport: custom(window.ethereum),
             });
 
