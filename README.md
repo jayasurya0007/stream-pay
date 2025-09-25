@@ -10,7 +10,7 @@ In this workshop, we will use StreamPay as a practical example of a micropayment
 
 ## Technology Stack
 
-- **Framework:** Preact with Hooks
+- **Framework:** React
 - **Language:** TypeScript
 - **Build Tool:** Vite
 - **Styling:** CSS Modules
